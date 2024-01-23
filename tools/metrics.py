@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import ot
 
 from ex2mcmc.metrics.total_variation import average_total_variation
@@ -45,10 +46,9 @@ def compute_metrics(
     std = tracker.std()
 
     metrics["wasserstein"] = 0
-    #Cost_matr_isir = ot.dist(x1 = isir_res[j][i], x2=gt_samples[i], metric='sqeuclidean', p=2, w=None)
-    #print("wasserstein")
+
     for b in range(xs_pred.shape[1]):
-        M = jnp.array(ot.dist(xs_true / scale, xs_pred[:, b] / scale))
+        M = np.array(ot.dist(xs_true / scale, xs_pred[:, b] / scale))
         emd = ot.lp.emd2([], [], M, numItermax=max_iter_ot)
         metrics["wasserstein"] += emd / xs_pred.shape[1]
 

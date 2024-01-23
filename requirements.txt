@@ -1,4 +1,5 @@
 numpy
+seaborn
 pandas
 matplotlib
 torch
@@ -7,3 +8,4 @@ scipy
 pyro-ppl
 ipykernel
 ipywidgets
+graphviz

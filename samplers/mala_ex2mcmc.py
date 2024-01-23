@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 from torch.distributions import Distribution as torchDist
 
-from distributions import Distribution, SamplableDistribution
+from distributions import Distribution
 
 
 def heuristics_step_size(
@@ -23,7 +23,7 @@ def heuristics_step_size(
 
 def mala(
     starting_points: Tensor,
-    target_dist: Union[SamplableDistribution, torchDist],
+    target_dist: Union[Distribution, torchDist],
     sample_count: int,
     burn_in: int,
     project: Callable = lambda x: x,
