@@ -1,3 +1,4 @@
+from distutils.fancy_getopt import longopt_pat
 import tqdm
 from typing import Callable, Dict, Optional, Tuple, Union
 
@@ -22,6 +23,7 @@ def mala(
     meta: Optional[Dict] = None,
     keep_graph: bool = False,
 ) -> Tuple[torch.Tensor, Dict]:
+    
     if sample_count + burn_in <= 0:
         raise ValueError("Number of steps might be positive")
 
@@ -38,12 +40,14 @@ def mala(
         torch.eye(point.shape[-1], device=device),
     )
     
+    logp_x = target_dist.log_prob(point)
     sigma = torch.full(point.shape[:-1], sigma_init)[..., None]
 
     meta = meta or dict()
     meta["mh_accept"] = meta.get("mh_accept", [])
-    meta["step_size"] = meta.get("step_size", [])
-    meta["logp"] = logp_x = target_dist.log_prob(point)
+    
+    meta["logp"] = meta.get("logp", [])
+    meta["logp"].append(logp_x)
     meta["sigma"] = meta.get("sigma", [])
 
     if "grad" not in meta:
@@ -61,18 +65,20 @@ def mala(
         grad_x = meta["grad"]
 
     pbar = tqdm.trange if verbose else range
+
     for step_id in pbar(sample_count + burn_in):
         noise = proposal_dist.sample(point.shape[:-1])
-        print("noise", noise.shape)
+        # print("noise", noise.shape)
 
-        proposal_point = point + 0.5 * sigma ** 2 * grad_x + noise * sigma 
-        print("nan proposal", proposal_point.shape)
+        proposal_point = point + 0.5 * grad_x * sigma ** 2 + noise * sigma 
+        proposal_point = project(proposal_point)
+        # print("nan proposal", proposal_point.shape)
 
         if not keep_graph:
             proposal_point = proposal_point.detach().requires_grad_()
 
         logp_y = target_dist.log_prob(proposal_point)
-        print("logp_y", logp_y.shape)
+        # print("logp_y", logp_y.shape)
         # print("nan logp_y", torch.isnan(logp_y).sum())
 
         grad_y = torch.autograd.grad(
@@ -83,25 +89,26 @@ def mala(
         )[
             0
         ]  # .detach()
-        print("grad_y", grad_y.shape)
-        # print("nan grad_y", torch.isnan(grad_y).sum())
+        # print("grad_y", grad_y.shape)
+        print("logp_y", logp_y)
+        print("nan grad_y", torch.isnan(grad_y).sum(dim=1))
+        print("sigma", sigma.squeeze())
 
         log_qyx = proposal_dist.log_prob(noise)
-        print("log_qyx", log_qyx.shape)
+        # print("log_qyx", log_qyx.shape)
 
         # print("nan num", torch.isnan(point - proposal_point - sigma ** 2 * grad_y).sum())
         log_qxy = proposal_dist.log_prob(
-            (point - proposal_point - sigma ** 2 * grad_y) / sigma
+            (point - proposal_point - 0.5 * sigma ** 2 * grad_y) / sigma
         )
-        print("log_qxy", log_qxy.shape)
+        # print("log_qxy", log_qxy.shape)
         
         accept_prob = torch.clamp((logp_y + log_qxy - logp_x - log_qyx).exp(), max=1)
-        print('accept', accept_prob.shape)
-
+        # print('accept', accept_prob.shape)
 
         mask = torch.rand_like(accept_prob) < accept_prob
         mask = mask.detach()
-        mask = mask[..., None]
+        # mask = mask[..., None]
 
         if keep_graph:
             mask_f = mask.float()
@@ -110,7 +117,6 @@ def mala(
             grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
         else:
             with torch.no_grad():
-                mask = mask.squeeze()
                 point[mask] = proposal_point[mask]
                 logp_x[mask] = logp_y[mask]
                 grad_x[mask] = grad_y[mask]
@@ -118,17 +124,15 @@ def mala(
                 # logp_x = logp_x * (1 - mask_f).squeeze() + logp_y * mask_f.squeeze()
                 # grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
 
-
-        print("point", point.shape)
-        print("logpx", logp_x.shape)
-        print("grad_x", grad_x.shape)
-        last_accept = mask.float().mean().item()
-        meta["mh_accept"].append(last_accept)
-        print('accept', accept_prob[..., None].shape)
+        # print("point", point.shape)
+        # print("logpx", logp_x.shape)
+        # print("grad_x", grad_x.shape)
+        meta["mh_accept"].append(accept_prob.detach())
+        # print('accept', accept_prob[..., None].shape)
         sigma *= (1 + rho * (accept_prob[..., None] - alpha)) ** 0.5
-        print("sigma", sigma.shape)
+        # print("sigma", sigma.shape)
         
-        meta["sigma"].append(sigma)
+        meta["sigma"].append(sigma.detach())
 
         if not keep_graph:
             point = point.detach().requires_grad_()
@@ -136,7 +140,7 @@ def mala(
         if step_id >= burn_in:
             chains.append(point.cpu().clone())
 
-        print()
+        # print()
     chains = torch.stack(chains, 0)
 
     meta["logp"] = logp_x

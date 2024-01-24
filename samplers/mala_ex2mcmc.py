@@ -90,7 +90,7 @@ def mala(
             proposal_point = proposal_point.detach().requires_grad_()
 
         logp_y = target_dist.log_prob(proposal_point)
-        # print("logp_y", logp_y)
+        print("logp_y", logp_y)
         grad_y = torch.autograd.grad(
             logp_y.sum(),
             proposal_point,
