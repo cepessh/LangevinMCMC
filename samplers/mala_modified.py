@@ -53,16 +53,16 @@ def mala(
     if "grad" not in meta:
         if keep_graph:
             grad_x = torch.autograd.grad(
-                meta["logp"].sum(),
+                meta["logp"][-1].sum(),
                 point,
                 create_graph=keep_graph,
                 retain_graph=keep_graph,
             )[0]
         else:
             grad_x = torch.autograd.grad(logp_x.sum(), point)[0].detach()
-        meta["grad"] = grad_x
+        meta["grad"] = [grad_x]
     else:
-        grad_x = meta["grad"]
+        grad_x = meta["grad"][-1]
 
     pbar = tqdm.trange if verbose else range
 
@@ -90,9 +90,9 @@ def mala(
             0
         ]  # .detach()
         # print("grad_y", grad_y.shape)
-        print("logp_y", logp_y)
-        print("nan grad_y", torch.isnan(grad_y).sum(dim=1))
-        print("sigma", sigma.squeeze())
+        # print("logp_y", logp_y)
+        # print("nan grad_y", torch.isnan(grad_y).sum(dim=1))
+        # print("sigma", sigma.squeeze())
 
         log_qyx = proposal_dist.log_prob(noise)
         # print("log_qyx", log_qyx.shape)
@@ -108,10 +108,9 @@ def mala(
 
         mask = torch.rand_like(accept_prob) < accept_prob
         mask = mask.detach()
-        # mask = mask[..., None]
 
         if keep_graph:
-            mask_f = mask.float()
+            mask_f = mask.float()[..., None]
             point = point * (1 - mask_f) + proposal_point * mask_f
             logp_x = logp_x * (1 - mask_f).squeeze() + logp_y * mask_f.squeeze()
             grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
@@ -138,13 +137,12 @@ def mala(
             point = point.detach().requires_grad_()
             
         if step_id >= burn_in:
-            chains.append(point.cpu().clone())
+            chains.append(point.detach().cpu().clone())
 
         # print()
     chains = torch.stack(chains, 0)
 
-    meta["logp"] = logp_x
-    meta["grad"] = grad_x
-    meta["mask"] = mask.cpu() # type: ignore
+    meta["logp"].append(logp_x)
+    meta["grad"].append(grad_x)
 
     return chains, meta

@@ -44,7 +44,8 @@ def fisher_mala(
     starting_points: torch.Tensor,
     target_dist: Union[Distribution, torchDist],
     sample_count: int,
-    burn_in: int,
+    burn_in_prec: int,
+    burn_in_sigma: int = 500,
     project: Callable = lambda x: x,
     *,
     sigma_init: float = 1.,
@@ -60,9 +61,6 @@ def fisher_mala(
     sigma (sample_count)
     """
 
-    if sample_count + burn_in <= 0:
-        raise ValueError("Number of steps might be positive")
-
     chains = []
     point = starting_points.clone()
     point.requires_grad_()
@@ -74,111 +72,35 @@ def fisher_mala(
         torch.eye(point.shape[-1], device=device),
     )
 
-    meta = meta or dict()
-    meta["mh_accept"] = meta.get("mh_accept", [])
-    meta["logp"] = logp_x = target_dist.log_prob(point)
-    meta["sigma"] = meta.get("sigma", [])
-
-    if "grad" not in meta:
-        if keep_graph:
-            grad_x = torch.autograd.grad(
-                meta["logp"].sum(),
-                point,
-                create_graph=keep_graph,
-                retain_graph=keep_graph,
-            )[0]
-        else:
-            grad_x = torch.autograd.grad(logp_x.sum(), point)[0].detach()
-        meta["grad"] = grad_x
-    else:
-        grad_x = meta["grad"]
-
-    sigma = torch.full(point.shape[:-1], sigma_init)[..., None]
-    # print("sigma", sigma.shape)
-
-
-    _, meta = mala(point, target_dist, sample_count=0, burn_in=burn_in,
-                   project=project, sigma_init=)
-    pbar = tqdm.trange if verbose else range
-    for step_id in pbar(burn_in):
-        noise = proposal_dist.sample(point.shape[:-1])
-        # print("noise", noise.shape)
-
-        proposal_point = point + 0.5 * sigma ** 2 * grad_x + noise * sigma 
-        # print("nan proposal", torch.isnan(proposal_point).sum())
-
-        if not keep_graph:
-            proposal_point = proposal_point.detach().requires_grad_()
-
-        logp_y = target_dist.log_prob(proposal_point)
-        # print("logp_y", logp_y)
-        # print("nan logp_y", torch.isnan(logp_y).sum())
-
-        grad_y = torch.autograd.grad(
-            logp_y.sum(),
-            proposal_point,
-            create_graph=keep_graph,
-            retain_graph=keep_graph,
-        )[
-            0
-        ]  # .detach()
-        # print("grad_y", grad_y)
-        # print("nan grad_y", torch.isnan(grad_y).sum())
-
-        log_qyx = proposal_dist.log_prob(noise)
-
-        # print("nan num", torch.isnan(point - proposal_point - sigma ** 2 * grad_y).sum())
-        log_qxy = proposal_dist.log_prob(
-            (point - proposal_point - sigma ** 2 * grad_y) / sigma
-        )
-
-        accept_prob = torch.clamp((logp_y + log_qxy - logp_x - log_qyx).exp(), max=1)
-        mask = torch.rand_like(accept_prob) < accept_prob
-        mask = mask.detach()
-
-        if keep_graph:
-            mask_f = mask.float()
-            point = point * (1 - mask_f) + proposal_point * mask_f
-            logp_x = logp_x * (1 - mask_f) + logp_y * mask_f
-            grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
-        else:
-            with torch.no_grad():
-                mask_f = mask.float()
-
-                # point[mask] = proposal_point[mask]
-                # logp_x[mask] = logp_y[mask]
-                # grad_x[mask] = grad_y[mask]
-                point = point * (1 - mask_f) + proposal_point * mask_f
-                logp_x = logp_x * (1 - mask_f) + logp_y * mask_f
-                grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
-
-        last_accept = mask.float().mean().item()
-        meta["mh_accept"].append(last_accept)
-
-        sigma *= (1 + rho * (accept_prob[..., None] - alpha)) ** 0.5
-        # print("sigma", sigma)
-        meta["sigma"].append(sigma)
-
-        if not keep_graph:
-            point = point.detach().requires_grad_()
-
+    samples, meta = mala(point, target_dist, sample_count=1, burn_in=burn_in_sigma-1,
+                         project=project, sigma_init=sigma_init, meta=meta,
+                         keep_graph=keep_graph, verbose=verbose)  
+    
+    point = samples[0]
+    if not keep_graph:
+        point = point.detach().requires_grad_()
 
     R = torch.eye(point.shape[-1]).repeat(*point.shape[:-1], 1, 1)
-    sigma_R = sigma[..., None]
+    sigma_R = meta["sigma"][-1][..., None]
+    # print("sigma_R", sigma_R)
+
+    grad_x = meta["grad"][-1]
+    logp_x = meta["logp"][-1]
+
     sigma_ = sigma_R.clone()
 
     h_ = partial(h, prec_factors=[R, R.permute(0, 2, 1)], keep_graph=keep_graph,
                  target_dist=target_dist)
-
-    for step_id in pbar(sample_count):
+    
+    pbar = tqdm.trange if verbose else range
+    for step_id in pbar(sample_count + burn_in_prec):
         # print("step", step_id)
         noise = proposal_dist.sample(point.shape[:-1])
 
         grad_x_img = grad_x[..., None]
         grad_x_img = R @ (R.permute(0, 2, 1) @ grad_x_img)
-        # print("nan grad_transf", torch.isnan(grad_x_img).sum())
 
-        # print("grad_transf", grad_transf.shape)
+        # print("grad_transf", grad_x_img.shape)
 
         proposal_point = point + (
             0.5 * grad_x_img * sigma_R ** 2 + R @ noise[..., None] * sigma_R
@@ -275,11 +197,11 @@ def fisher_mala(
         sigma_R = sigma_ / normalizer ** 0.5
         # print("sigma_R", sigma_R)
 
-        A_n = R * sigma_R
+        # A_n = R * sigma_R
         # print("R * sigma", A_n)
 
-        A_n = A_n @ A_n.permute(0, 2, 1)
-        trace_A = [A.trace() for A in A_n]
+        # A_n = A_n @ A_n.permute(0, 2, 1)
+        # trace_A = [A.trace() for A in A_n]
 
         # print("trace_A", trace_A)
 
@@ -291,38 +213,31 @@ def fisher_mala(
         # print()
 
         mask = torch.rand_like(accept_prob) < accept_prob
-        mask = mask.detach()[..., None]
+        mask = mask.detach()
 
         if keep_graph:
-            mask_f = mask.float()
+            mask_f = mask.float()[..., None]
             point = point * (1 - mask_f) + proposal_point * mask_f
             logp_x = logp_x * (1 - mask_f) + logp_y * mask_f
             grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
         else:
             with torch.no_grad():
-                mask_f = mask.float()
+                point[mask] = proposal_point[mask]
+                logp_x[mask] = logp_y[mask]
+                grad_x[mask] = grad_y[mask]
 
-                # point[mask] = proposal_point[mask]
-                # logp_x[mask] = logp_y[mask]
-                # grad_x[mask] = grad_y[mask]
-                point = point * (1 - mask_f) + proposal_point * mask_f
-                logp_x = logp_x * (1 - mask_f) + logp_y * mask_f
-                grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
-
-        last_accept = mask.float().mean().item()
-        meta["mh_accept"].append(last_accept)
-
-        # meta["sigma"].append(sigma)
+        meta["mh_accept"].append(accept_prob)
+        meta["sigma"].append(sigma_R)
 
         if not keep_graph:
             point = point.detach().requires_grad_()
 
-        chains.append(point.cpu().clone())
+        if step_id >= burn_in_prec:
+            chains.append(point.detach().cpu().clone())
         
     chains = torch.stack(chains, 0)
 
-    meta["logp"] = logp_x
-    meta["grad"] = grad_x
-    meta["mask"] = mask.cpu()
+    meta["logp"].append(logp_x.detach())
+    meta["grad"].append(grad_x.detach())
 
     return chains, meta
