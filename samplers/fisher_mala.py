@@ -126,8 +126,8 @@ def fisher_mala(
             0
         ]  # .detach()
 
-        grad_y_img = grad_y[..., None]
-        grad_y_img = R @ (R.permute(0, 2, 1) @ grad_y_img)
+        # grad_y_img = grad_y[..., None]
+        # grad_y_img = R @ (R.permute(0, 2, 1) @ grad_y_img)
 
         # log_qyx = proposal_dist.log_prob(noise)
         # log_qxy = proposal_dist.log_prob(
