@@ -1,9 +1,14 @@
 numpy
+jax
+jaxlib
+POT
 seaborn
 pandas
 matplotlib
 torch
+torchvision
 tqdm
+easydict
 scipy
 pyro-ppl
 ipykernel

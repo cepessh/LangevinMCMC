@@ -86,11 +86,12 @@ def mala(
         noise = proposal_dist.sample(point.shape[:-1])
         proposal_point = point + step_size * grad_x + noise * (2 * step_size) ** 0.5
         proposal_point = project(proposal_point)
+
         if not keep_graph:
             proposal_point = proposal_point.detach().requires_grad_()
 
         logp_y = target_dist.log_prob(proposal_point)
-        # print("logp_y", logp_y)
+
         grad_y = torch.autograd.grad(
             logp_y.sum(),
             proposal_point,
@@ -104,6 +105,14 @@ def mala(
         log_qxy = proposal_dist.log_prob(
             (point - proposal_point - step_size * grad_y) / (2 * step_size) ** 0.5
         )
+
+        # print("logpy", logp_y)
+        # print("logpx", logp_x)
+
+        # print("logqxy", log_qxy)
+        # print("logqyx", log_qyx)
+
+        # print("logaccept", logp_y + log_qxy - logp_x - log_qyx)
 
         accept_prob = torch.clamp((logp_y + log_qxy - logp_x - log_qyx).exp(), max=1)
         mask = torch.rand_like(accept_prob) < accept_prob

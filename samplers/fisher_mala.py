@@ -81,11 +81,11 @@ def fisher_mala(
         point = point.detach().requires_grad_()
 
     R = torch.eye(point.shape[-1]).repeat(*point.shape[:-1], 1, 1)
-    sigma_R = meta["sigma"][-1][..., None]
+    sigma_R = meta["sigma"][..., None]
     # print("sigma_R", sigma_R)
 
-    grad_x = meta["grad"][-1]
-    logp_x = meta["logp"][-1]
+    grad_x = meta["grad"]
+    logp_x = meta["logp"]
 
     sigma_ = sigma_R.clone()
 
@@ -94,6 +94,10 @@ def fisher_mala(
     
     pbar = tqdm.trange if verbose else range
     for step_id in pbar(sample_count + burn_in_prec):
+
+        h_ = partial(h, prec_factors=[R, R.permute(0, 2, 1)], keep_graph=keep_graph,
+                     target_dist=target_dist, sigma=sigma_R.squeeze())
+
         # print("step", step_id)
         noise = proposal_dist.sample(point.shape[:-1])
 
@@ -126,6 +130,7 @@ def fisher_mala(
             0
         ]  # .detach()
 
+        # Inefficient O(d^3) calculation of the inverse 
         # grad_y_img = grad_y[..., None]
         # grad_y_img = R @ (R.permute(0, 2, 1) @ grad_y_img)
 
@@ -136,33 +141,43 @@ def fisher_mala(
         #         (point - proposal_point - (0.5 * grad_y_img * sigma_R ** 2).squeeze())[..., None]
         #     ).squeeze()
         # )
-
+        #
         # accept_prob = torch.clamp((logp_y + log_qxy - logp_x - log_qyx).exp(), max=1)
         accept_prob = torch.clamp(
             torch.exp(
-                logp_y + h_(point, proposal_point, sigma_R.squeeze()) - logp_x \
-                - h_(proposal_point, point, sigma_R.squeeze())
+                logp_y + h_(point, proposal_point) - logp_x - h_(proposal_point, point)
             ),
             max=1
         )
+
+        if not keep_graph:
+            accept_prob = accept_prob.detach()
         # print("accept_prob", accept_prob)
         # print("nan accept_prob", torch.isnan(accept_prob).sum())
 
 
         # print("accept", accept_prob.shape)
         # print("grad_y - grad_x", (grad_y - grad_x).shape)
-
+        
         signal_adaptation = torch.sqrt(accept_prob)[..., None] * (grad_y - grad_x)
+
+        #if not keep_graph: 
+        #    signal_adaptation = signal_adaptation.detach()
         # print("nan signal_adaptation", torch.isnan(signal_adaptation).sum())
         # print("sqrt accept", torch.sqrt(accept_prob))
         
         # print("sig adapt", signal_adaptation)
 
         phi_n = R.permute(0, 2, 1) @ signal_adaptation[..., None]
+        #if not keep_graph: 
+        #    phi_n = phi_n.detach()
         # print("nan phi_n", torch.isnan(phi_n).sum())
         # print("phi_n", phi_n)
 
         gramm_diag = phi_n.permute(0, 2, 1) @ phi_n
+        #if not keep_graph:
+        #    gramm_diag = gramm_diag.detach()
+
         # print("gramm_diag", gramm_diag)
 
         if step_id == 0:
@@ -227,7 +242,7 @@ def fisher_mala(
                 grad_x[mask] = grad_y[mask]
 
         meta["mh_accept"].append(accept_prob)
-        meta["sigma"].append(sigma_R)
+        meta["sigma"] = sigma_R
 
         if not keep_graph:
             point = point.detach().requires_grad_()
@@ -237,7 +252,7 @@ def fisher_mala(
         
     chains = torch.stack(chains, 0)
 
-    meta["logp"].append(logp_x.detach())
-    meta["grad"].append(grad_x.detach())
+    meta["logp"] = logp_x.detach()
+    meta["grad"] = grad_x.detach()
 
     return chains, meta

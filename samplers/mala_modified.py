@@ -46,23 +46,22 @@ def mala(
     meta = meta or dict()
     meta["mh_accept"] = meta.get("mh_accept", [])
     
-    meta["logp"] = meta.get("logp", [])
-    meta["logp"].append(logp_x)
-    meta["sigma"] = meta.get("sigma", [])
+    meta["logp"] = meta.get("logp", logp_x)
+    meta["sigma"] = meta.get("sigma", sigma)
 
     if "grad" not in meta:
         if keep_graph:
             grad_x = torch.autograd.grad(
-                meta["logp"][-1].sum(),
+                meta["logp"].sum(),
                 point,
                 create_graph=keep_graph,
                 retain_graph=keep_graph,
             )[0]
         else:
             grad_x = torch.autograd.grad(logp_x.sum(), point)[0].detach()
-        meta["grad"] = [grad_x]
+        meta["grad"] = grad_x
     else:
-        grad_x = meta["grad"][-1]
+        grad_x = meta["grad"]
 
     pbar = tqdm.trange if verbose else range
 
@@ -104,10 +103,7 @@ def mala(
         # print("log_qxy", log_qxy.shape)
         
         accept_prob = torch.clamp((logp_y + log_qxy - logp_x - log_qyx).exp(), max=1)
-        # print('accept', accept_prob.shape)
-
         mask = torch.rand_like(accept_prob) < accept_prob
-        mask = mask.detach()
 
         if keep_graph:
             mask_f = mask.float()[..., None]
@@ -119,19 +115,24 @@ def mala(
                 point[mask] = proposal_point[mask]
                 logp_x[mask] = logp_y[mask]
                 grad_x[mask] = grad_y[mask]
-                # point = point * (1 - mask_f) + proposal_point * mask_f
-                # logp_x = logp_x * (1 - mask_f).squeeze() + logp_y * mask_f.squeeze()
-                # grad_x = grad_x * (1 - mask_f) + grad_y * mask_f
 
         # print("point", point.shape)
         # print("logpx", logp_x.shape)
         # print("grad_x", grad_x.shape)
         meta["mh_accept"].append(accept_prob.detach())
         # print('accept', accept_prob[..., None].shape)
+        
+        if not keep_graph:
+            accept_prob = accept_prob.detach()
+
         sigma *= (1 + rho * (accept_prob[..., None] - alpha)) ** 0.5
+
+        if not keep_graph:
+            sigma = sigma.detach()
+
         # print("sigma", sigma.shape)
         
-        meta["sigma"].append(sigma.detach())
+        meta["sigma"] = sigma.detach().cpu().clone()
 
         if not keep_graph:
             point = point.detach().requires_grad_()
@@ -142,7 +143,7 @@ def mala(
         # print()
     chains = torch.stack(chains, 0)
 
-    meta["logp"].append(logp_x)
-    meta["grad"].append(grad_x)
+    meta["logp"] = logp_x
+    meta["grad"] = grad_x
 
     return chains, meta
