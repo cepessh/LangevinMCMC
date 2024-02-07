@@ -22,7 +22,8 @@ class Params:
 class Cache:
     params: Params
 
-    samples: list = field(default_factory=list)
+    true_samples: Optional[Tensor] = None
+    samples: Optional[Tensor] = None
 
     point: Optional[Tensor] = None
     logp: Optional[Tensor] = None

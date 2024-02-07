@@ -46,5 +46,7 @@ class MALAIter(base_sampler.Iteration):
                     accept_prob[..., None] - self.cache.params.meta["alpha"]
                 )
             ) ** 0.5
-
-        self.cache.samples.append(self.cache.point.detach().clone())
+        if self.cache.samples is None:
+            self.cache.samples = self.cache.point.detach().clone()[None, ...]
+        else:
+            self.cache.samples = torch.cat([self.cache.samples, self.cache.point.detach().clone()[None, ...]], 0)
