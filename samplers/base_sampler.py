@@ -84,5 +84,5 @@ class Pipeline:
     def run(self) -> Cache:
         for block in self.sample_blocks:
             self.cache = block.run(self.cache)
-            
+
         return self.cache
