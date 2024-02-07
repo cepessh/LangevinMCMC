@@ -34,7 +34,6 @@ def mala(
 
     device = point.device
 
-    # Reassigning of the argument proposal_dist
     proposal_dist = torch.distributions.MultivariateNormal(
         torch.zeros(point.shape[-1], device=device),
         torch.eye(point.shape[-1], device=device),
@@ -132,7 +131,7 @@ def mala(
 
         # print("sigma", sigma.shape)
         
-        meta["sigma"] = sigma.detach().cpu().clone()
+        meta["sigma"] = sigma.detach()
 
         if not keep_graph:
             point = point.detach().requires_grad_()

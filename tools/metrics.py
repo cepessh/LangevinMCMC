@@ -18,7 +18,7 @@ def compute_metrics(
 ):
     metrics = dict()
     key = jax.random.PRNGKey(0)
-    n_steps = 25
+    projection_count = 25
     # sample_count = 100
 
     ess = ESS(
@@ -35,8 +35,8 @@ def compute_metrics(
         key,
         xs_true,
         xs_pred,
-        n_steps=n_steps,
-        sample_count=sample_count,
+        projection_count=projection_count,
+        density_probe_count=sample_count,
     )
 
     metrics["tv_mean"] = tracker.mean()
@@ -53,3 +53,17 @@ def compute_metrics(
         metrics["wasserstein"] += emd / xs_pred.shape[1]
 
     return metrics
+
+
+def tv_threshold(xs_true, xs_pred, density_probe_count, projection_count=25):
+    key = jax.random.PRNGKey(0)
+
+    tracker = average_total_variation(
+        key,
+        xs_true,
+        xs_pred,
+        projection_count=projection_count,
+        density_probe_count=density_probe_count,
+    )
+
+    return tracker.mean(), tracker.std()

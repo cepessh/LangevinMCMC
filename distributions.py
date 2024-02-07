@@ -29,7 +29,6 @@ class GaussianMixture(SamplableDistribution):
         self.covs = covs
 
     def sample(self, sample_count: int) -> Tensor:
-        # which_gaussian = self.category.sample(torch.Size((sample_count,)))
         which_gaussian = self.category.sample(torch.Size((sample_count,)))
         multivariate_normal = torch.distributions.MultivariateNormal(
             self.means[which_gaussian], self.covs[which_gaussian])

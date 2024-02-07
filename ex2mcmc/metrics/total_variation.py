@@ -55,8 +55,6 @@ def create_random_2d_projection(
     v = jax.random.normal(key, [len(x0), len(x0)])
     v = v / jnp.linalg.norm(v)
 
-    print(v.shape)
-
     return Projector(x0, v)
 
 
@@ -64,15 +62,17 @@ def average_total_variation(
     key: jnp.ndarray,
     true: jnp.ndarray,
     other: jnp.ndarray,
-    sample_count: int,
-    n_steps: int,
+    density_probe_count: int,
+    projection_count: int,
 ) -> MeanTracker:
     tracker = MeanTracker()
-    keys = jax.random.split(key, n_steps)
+    keys = jax.random.split(key, projection_count)
 
-    for b in range(other.shape[1]):
-        for i in range(n_steps):
-            tracker.update(total_variation(keys[i], true, other[:, b], sample_count))
+    for chain_index in range(other.shape[1]):
+        for i in range(projection_count):
+            tracker.update(total_variation(
+                keys[i], true, other[:, chain_index], density_probe_count))
+
     return tracker
 
 
@@ -80,24 +80,24 @@ def total_variation(
     key: jnp.ndarray,
     xs_true: jnp.ndarray,
     xs_pred: jnp.ndarray,
-    sample_count: int,
+    density_probe_count: int,
 ):
     proj = create_random_projection(key, xs_true)
     return total_variation_1d(
         proj.project(xs_true),
         proj.project(xs_pred),
-        sample_count,
+        density_probe_count,
     )
 
 
-def total_variation_1d(xs_true, xs_pred, sample_count):
+def total_variation_1d(xs_true, xs_pred, density_probe_count):
     true_density = gaussian_kde(xs_true)
     pred_density = gaussian_kde(xs_pred)
 
     x_min = min(xs_true.min(), xs_pred.min())
     x_max = max(xs_true.max(), xs_pred.max())
 
-    points = np.linspace(x_min, x_max, sample_count)
+    points = np.linspace(x_min, x_max, density_probe_count)
 
     return (
         0.5
