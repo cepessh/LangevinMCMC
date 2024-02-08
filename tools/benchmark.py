@@ -51,7 +51,7 @@ class BenchmarkUtils:
             BenchmarkUtils.plot_samples(axes[0], true_samples, target_title)
             mcmc_first_ax = 1
         else:
-            fig, axes = plt.subplots(nrows=chain_count, n_cols=1,
+            fig, axes = plt.subplots(nrows=chain_count, ncols=1,
                                      figsize=(fig_side, fig_side*chain_count))
             
         for chain_index, ax in enumerate(axes[mcmc_first_ax:]):
@@ -99,3 +99,8 @@ class Benchmark:
         res_metrics["time_elapsed"] = time_elapsed
 
         return res_metrics
+
+
+@dataclass
+class BenchmarkStoppingRule:
+    pass

@@ -13,15 +13,28 @@ from tools.metrics import tv_threshold
 
 
 @dataclass
+class StopStatus:
+    is_stop: bool
+    meta: dict = field(default_factory=dict)
+
+
+@dataclass
 class TVStop:
     threshold: float = 0.1
     projection_count: int = 25
     density_probe_count: int = 1000
+    tail_count_cap: int = 0
 
-    def __call__(self, cache: Cache):
+    def __call__(self, cache: Cache) -> StopStatus:
         tv_mean, tv_std = tv_threshold(
-            jnp.array(cache.true_samples), jnp.array(cache.samples),
+            jnp.array(cache.true_samples), jnp.array(cache.samples[-self.tail_count_cap:]),
             self.density_probe_count, self.projection_count
         )
 
-        return tv_mean < self.threshold
+        return StopStatus(
+            is_stop=tv_mean < self.threshold,
+            meta={
+                "tv_mean": tv_mean,
+                "tv_std": tv_std,
+            },
+        )
